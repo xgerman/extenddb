@@ -34,6 +34,16 @@ const MIN_INDEX_NAME_LENGTH: usize = 3;
 const MAX_TOP_K: i64 = 100;
 /// Maximum number of elements in a search vector.
 const MAX_SEARCH_VECTOR_LENGTH: usize = 4096;
+/// Rejection for a search vector carrying anything other than finite 32-bit
+/// floats.
+///
+/// One message for every cause. Measured byte-exact against real Amazon DynamoDB
+/// on 2026-08-19 (probe P4): `NaN`, `Infinity` and a number outside the f32
+/// range in `SearchVector` all return this identical whole string, so the caller
+/// cannot tell the three apart. The engine previously emitted the first sentence
+/// only.
+const SEARCH_VECTOR_INVALID_VALUES: &str = "Search vector contains invalid values. All values in the search vector must be a 32-bit \
+     floating-point number attribute";
 /// `SearchVectors` request body.
 #[derive(Debug, Clone, Deserialize)]
 struct SearchVectorsInput {
@@ -346,20 +356,18 @@ fn parse_search_vector(values: &[AttributeValue]) -> Result<Vec<f32>, DynamoDbEr
         match v {
             AttributeValue::N(n) => {
                 let f = n.parse::<f32>().map_err(|_| {
-                    DynamoDbError::ValidationException(
-                        "Search vector contains invalid values".to_owned(),
-                    )
+                    DynamoDbError::ValidationException(SEARCH_VECTOR_INVALID_VALUES.to_owned())
                 })?;
                 if !f.is_finite() {
                     return Err(DynamoDbError::ValidationException(
-                        "Search vector contains invalid values".to_owned(),
+                        SEARCH_VECTOR_INVALID_VALUES.to_owned(),
                     ));
                 }
                 out.push(f);
             }
             _ => {
                 return Err(DynamoDbError::ValidationException(
-                    "Search vector contains invalid values".to_owned(),
+                    SEARCH_VECTOR_INVALID_VALUES.to_owned(),
                 ));
             }
         }
