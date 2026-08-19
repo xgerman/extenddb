@@ -672,7 +672,41 @@ mod tests {
         let DynamoDbError::ValidationException(msg) = err else {
             panic!("expected ValidationException");
         };
-        assert_eq!(msg, "Search vector contains invalid values");
+        assert_eq!(msg, SEARCH_VECTOR_INVALID_VALUES);
+    }
+
+    /// The whole string, byte for byte, as captured from real Amazon DynamoDB on
+    /// 2026-08-19 (probe P4: `NaN`, `Infinity` and `3.5E38` in `SearchVector` all
+    /// return this one message). Asserted as a literal rather than through the
+    /// constant so a future edit to the constant cannot silently move the
+    /// contract with the test that guards it.
+    #[test]
+    fn the_invalid_values_message_is_the_measured_whole_string() {
+        assert_eq!(
+            SEARCH_VECTOR_INVALID_VALUES,
+            "Search vector contains invalid values. All values in the search vector must be a \
+             32-bit floating-point number attribute"
+        );
+    }
+
+    /// All three rejection paths return the same message, which is what the
+    /// service does: an unparseable number, a non-finite number and a non-number
+    /// attribute are indistinguishable to the caller.
+    #[test]
+    fn every_invalid_component_returns_the_same_message() {
+        for value in [
+            AttributeValue::N("NaN".to_owned()),
+            AttributeValue::N("Infinity".to_owned()),
+            AttributeValue::N("not-a-number".to_owned()),
+            AttributeValue::S("x".to_owned()),
+            AttributeValue::Bool(true),
+        ] {
+            let err = parse_search_vector(std::slice::from_ref(&value)).unwrap_err();
+            let DynamoDbError::ValidationException(msg) = err else {
+                panic!("expected ValidationException for {value:?}");
+            };
+            assert_eq!(msg, SEARCH_VECTOR_INVALID_VALUES, "for {value:?}");
+        }
     }
 
     #[test]
